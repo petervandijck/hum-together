@@ -34,7 +34,10 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;background:va
 .bond i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--rose),var(--amber))}
 .row{display:flex;justify-content:space-between;gap:8px;color:var(--dim);font-variant-numeric:tabular-nums;letter-spacing:.04em}
 #demo{display:flex;flex-direction:column;gap:6px;color:var(--dim);pointer-events:auto}
-#demo input{width:100%;accent-color:var(--rose)}
+#demo input,#tune input{width:100%;accent-color:var(--rose)}
+#tune{display:flex;flex-direction:column;gap:6px;color:var(--dim);pointer-events:auto}
+#tune[hidden]{display:none}
+.dbg{font-size:11px;letter-spacing:.02em;font-variant-numeric:tabular-nums}
 .toast{position:fixed;left:0;right:0;top:26%;z-index:3;text-align:center;font-family:var(--display);font-size:clamp(40px,13vw,72px);line-height:1;pointer-events:none;opacity:0;transition:opacity .35s;padding:0 16px;text-wrap:balance;text-shadow:0 0 28px rgba(255,122,176,.7)}
 #setup{position:fixed;inset:0;z-index:5;background:rgba(11,15,29,.94);display:flex;align-items:center;justify-content:center;
   padding:max(24px,env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) max(24px,env(safe-area-inset-bottom,0px)) max(20px,env(safe-area-inset-left,0px));overflow:auto}
@@ -59,6 +62,11 @@ small{color:var(--dim);line-height:1.5}
 <div class="ui bottom">
   <div class="mood" id="mood"></div>
   <div class="bond" aria-hidden="true"><i id="bondFill"></i></div>
+  <div id="tune" hidden>
+    <div class="dbg" id="dbg"></div>
+    <label for="sens">Sensitivity (left = more sensitive)</label>
+    <input type="range" id="sens" min="6" max="40" value="20">
+  </div>
   <div class="row"><span id="bonds">world 1</span><span id="pct">closeness 0%</span></div>
   <div id="demo" hidden>
     <label for="dist">Distance (demo mode, shared by both phones)</label>
@@ -91,7 +99,7 @@ small{color:var(--dim);line-height:1.5}
 
   /* Every phone picks one of these tones at random and listens for all the others. Spaced so no tone is a harmonic of another. */
   var CAND=[1400,1560,1740,1930,2150,2400,2680,2980];
-  var myFreq=0,micOK=false,started=false;
+  var myFreq=0,micOK=false,started=false,micInfo='',peer=0,snrHold=0;
   var c=0,target=0,snr=0,bond=0,bonds=0,flash=0,theta=0,med=0,frameN=0;
   var ac,master,bus,pilotOsc,pilotGain,filt,moodGain,moodOscs=[],analyser,buf;
   var nextBell=0,trans=0,hueRot=0,hueRotT=0,grav=1,gravUntil=0,discoUntil=0,nextDisco=0,echoUntil=0;
@@ -127,10 +135,11 @@ small{color:var(--dim);line-height:1.5}
       bus.connect(bus2);bus2.connect(master);
       pickFreq();
       pilotOsc=ac.createOscillator();pilotOsc.type='sine';pilotOsc.frequency.value=myFreq;
-      pilotGain=ac.createGain();pilotGain.gain.value=.16;
+      pilotGain=ac.createGain();pilotGain.gain.value=.22;
       pilotOsc.connect(pilotGain);pilotGain.connect(master);pilotOsc.start();
-      var lfo=ac.createOscillator();lfo.frequency.value=2;
-      var lg=ac.createGain();lg.gain.value=.06;lfo.connect(lg);lg.connect(pilotGain.gain);lfo.start();
+      var lfo=ac.createOscillator();lfo.frequency.value=3;
+      var lg=ac.createGain();lg.gain.value=.2;lfo.connect(lg);lg.connect(pilotGain.gain);lfo.start();
+      var vib=ac.createOscillator();vib.frequency.value=6;var vg=ac.createGain();vg.gain.value=10;vib.connect(vg);vg.connect(pilotOsc.frequency);vib.start();
       filt=ac.createBiquadFilter();filt.type='lowpass';filt.frequency.value=600;
       moodGain=ac.createGain();moodGain.gain.value=0;
       filt.connect(moodGain);moodGain.connect(bus);
@@ -143,6 +152,7 @@ small{color:var(--dim);line-height:1.5}
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return Promise.reject(new Error('no mic api'));
     return navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}}).then(function(st){
       var src=ac.createMediaStreamSource(st);
+      try{var se=st.getAudioTracks()[0].getSettings();micInfo='ns '+(se.noiseSuppression?'on':'off')+' agc '+(se.autoGainControl?'on':'off')}catch(e){}
       analyser=ac.createAnalyser();analyser.fftSize=4096;analyser.smoothingTimeConstant=.6;
       src.connect(analyser);
       buf=new Float32Array(analyser.frequencyBinCount);
@@ -156,13 +166,13 @@ small{color:var(--dim);line-height:1.5}
       arr.sort(function(a,b){return a-b});
       if(arr.length)med=arr[arr.length>>1];
     }
-    var best=0;
+    var best=0;peer=0;
     CAND.forEach(function(f){
       if(f===myFreq)return;
       var k=Math.round(f/bw),pk=-200;
-      for(i=k-2;i<=k+2;i++)pk=Math.max(pk,buf[i]);
+      for(i=k-3;i<=k+3;i++)pk=Math.max(pk,buf[i]);
       var s=pk-med;
-      if(isFinite(s)&&s>best)best=s;
+      if(isFinite(s)&&s>best){best=s;peer=f}
     });
     return best;
   }
@@ -288,7 +298,7 @@ small{color:var(--dim);line-height:1.5}
     var dt=Math.min(.05,(ts-last)/1000||.016);last=ts;
     var now=ts;frameN++;
     if(started&&micOK&&analyser){
-      snr=measure();target=clamp((snr-4)/26,0,1);
+      snrHold=Math.max(measure(),snrHold-20*dt);snr=snrHold;target=clamp((snr-3)/(+$('#sens').value),0,1);
       if(snr>6)lastHeard=now;
       else if(now>rerollAt&&now-lastHeard>12000){pickFreq();rerollAt=now+8000+Math.random()*12000}
     }
@@ -387,7 +397,7 @@ small{color:var(--dim);line-height:1.5}
       $('#pct').textContent='closeness '+Math.round(c*100)+'%';
       var b=c<.2?0:c<.5?1:c<.8?2:3;
       if(b!==band){band=b;$('#mood').textContent=pick(WORDS[b])}
-      if(micOK)$('#status').textContent=snr>6?'hearing you':'listening';
+      if(micOK){$('#status').textContent=snr>6?'hearing you':'listening';if(frameN%8===0)$('#dbg').textContent='signal '+snr.toFixed(1)+' dB · peer '+(snr>6?peer+' Hz':'none')+' · you '+myFreq+' Hz · '+micInfo}
     }
     requestAnimationFrame(frame);
   }
@@ -410,7 +420,7 @@ small{color:var(--dim);line-height:1.5}
     startAudio().then(function(){return startMic().then(function(){micOK=true},function(){micOK=false})}).then(function(){
       started=true;lastHeard=performance.now();rerollAt=lastHeard+10000+Math.random()*10000;nextEv=lastHeard+8000;
       setWorld(0);
-      if(!micOK){$('#status').textContent='demo mode, no microphone';startDemo()}
+      if(!micOK){$('#status').textContent='demo mode, no microphone';startDemo()}else{$('#tune').hidden=false}
     }).catch(function(){started=true;$('#status').textContent='audio unavailable';startDemo()});
     try{if(navigator.wakeLock)navigator.wakeLock.request('screen').catch(function(){})}catch(e){}
   });
