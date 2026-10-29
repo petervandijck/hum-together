@@ -80,7 +80,7 @@ small{color:var(--dim);line-height:1.5}
     <h1>Hum Together</h1>
     <p>Open this page on two phones and tap start on both. Each phone hums and listens for the other. Walk toward each other and the orbs dance, merge and the music brightens. Walk apart and it gets lonely. Tap the screen to play notes. Stay close to unlock new worlds, and expect surprises.</p>
     <button id="go">Start humming</button>
-    <small>Needs the microphone and sound on. Phones 1 to 6 meters apart work best, in a room that is not too noisy.</small>
+    <small>build 5. Needs the microphone and sound on. Phones 1 to 6 meters apart work best, in a room that is not too noisy.</small>
   </div>
 </div>
 
@@ -416,7 +416,7 @@ small{color:var(--dim);line-height:1.5}
 
   /* ---------- start ---------- */
   $('#go').addEventListener('click',function(){
-    $('#setup').hidden=true;
+    var su=$('#setup');su.hidden=true;su.style.display='none';
     $('#status').textContent='starting';
     startAudio().then(function(){return startMic().then(function(){micOK=true},function(){micOK=false})}).then(function(){
       started=true;lastHeard=performance.now();rerollAt=lastHeard+10000+Math.random()*10000;nextEv=lastHeard+8000;
